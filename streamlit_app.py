@@ -1,13 +1,11 @@
 import streamlit as st
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from scipy import ndimage
+import glob, os
 from PIL import Image
 import matplotlib.pyplot as plt
-import glob
-import os
+from scipy import ndimage
+import torch
+import torchvision.models as models
 
 # ==================================================
 # Page setup
@@ -34,7 +32,7 @@ def apply_filter(image, kernel):
 
 def threshold_and_count(feature_map, thresh):
     binary = feature_map > thresh
-    labeled, num = ndimage.label(binary)
+    _, num = ndimage.label(binary)
     return binary, num
 
 
@@ -46,23 +44,22 @@ def show_image(img, title):
     st.pyplot(fig)
 
 # ==================================================
-# Load images
+# Load microscopy images (labelled/img)
 # ==================================================
 
-DATASET_PATH = "labelled"
-tiff_files = sorted(glob.glob(os.path.join(DATASET_PATH, "*.tif*")))
+IMG_DIR = "labelled/img"
+tiff_files = sorted(glob.glob(os.path.join(IMG_DIR, "*.tif*")))
 
-if len(tiff_files) < 5:
-    st.error("Need at least 5 TIFF images in the labelled folder.")
+if len(tiff_files) == 0:
+    st.error("No TIFF images found in labelled/img/")
     st.stop()
 
-files = tiff_files[:5]
-images = [load_tiff(p) for p in files]
-names = [os.path.basename(p) for p in files]
+images = [load_tiff(p) for p in tiff_files]
+names = [os.path.basename(p) for p in tiff_files]
 
 idx = st.sidebar.selectbox(
     "Select image",
-    range(5),
+    range(len(images)),
     format_func=lambda i: names[i]
 )
 image = images[idx]
@@ -76,12 +73,12 @@ page = st.sidebar.radio(
     [
         "1️⃣ Human cell counting",
         "2️⃣ Counting with filters",
-        "3️⃣ CNN learns filters"
+        "3️⃣ Filters learned by a CNN"
     ]
 )
 
 # ==================================================
-# SECTION 1 — Human counting
+# SECTION 1 — Human intuition
 # ==================================================
 
 if page == "1️⃣ Human cell counting":
@@ -98,7 +95,7 @@ if page == "1️⃣ Human cell counting":
         )
 
 # ==================================================
-# SECTION 2 — BEFORE / AFTER CONVOLUTION
+# SECTION 2 — Hand-designed filters
 # ==================================================
 
 elif page == "2️⃣ Counting with filters":
@@ -108,10 +105,6 @@ elif page == "2️⃣ Counting with filters":
         "A computer applies the **same filter everywhere** in the image. "
         "The output becomes bright where the image matches the filter."
     )
-
-    # -------------------------------
-    # Filter selection
-    # -------------------------------
 
     filters = {
         "Blob filter (average)": np.ones((3, 3)) / 9,
@@ -130,31 +123,15 @@ elif page == "2️⃣ Counting with filters":
     fname = st.selectbox("Choose a filter", list(filters.keys()))
     kernel = filters[fname]
 
-    # -------------------------------
-    # Apply convolution
-    # -------------------------------
-
     feature_map = apply_filter(image, kernel)
 
-    # -------------------------------
-    # Visualise before / after
-    # -------------------------------
-
-    st.subheader("🔹 Effect of convolution")
-
     c1, c2 = st.columns(2)
-
     with c1:
         show_image(image, "Original image")
-
     with c2:
-        show_image(feature_map, "After convolution (feature map)")
+        show_image(feature_map, "After convolution")
 
-    # -------------------------------
-    # Thresholding + counting
-    # -------------------------------
-
-    st.subheader("🔹 From response to counting")
+    st.subheader("From response to counting")
 
     thresh = st.slider(
         "Threshold",
@@ -166,79 +143,56 @@ elif page == "2️⃣ Counting with filters":
     binary, count = threshold_and_count(feature_map, thresh)
 
     c3, c4 = st.columns(2)
-
     with c3:
         show_image(binary, "Thresholded image")
-
     with c4:
-        st.metric("Predicted cell count", count)
+        st.metric("Predicted count (filter-based)", count)
 
     st.markdown("""
     **Think about it:**
     - Where does the output become bright?
-    - Does that correspond to cells?
-    - Which filter works best, and why?
+    - Which filter works best?
+    - Why does this sometimes fail?
     """)
 
 # ==================================================
-# SECTION 3 — CNN learns filters
+# SECTION 3 — PRETRAINED CNN FILTERS (OPEN SOURCE)
 # ==================================================
 
-elif page == "3️⃣ CNN learns filters":
-    st.header("3️⃣ What if the computer learns its own filters?")
+elif page == "3️⃣ Filters learned by a CNN":
+    st.header("3️⃣ Filters learned automatically by a CNN")
 
-    if "model" not in st.session_state:
-        st.session_state.model = None
+    st.markdown(
+        "These filters come from an **open-source CNN (ResNet-18)** trained on "
+        "millions of images. They were **not designed by humans**.\n\n"
+        "The **first layer** of a CNN learns very general patterns like edges, "
+        "blobs, and textures — useful even for cell images."
+    )
 
     @st.cache_resource
-    def train_cnn(images):
-        class Net(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.conv = nn.Conv2d(1, 4, 3, padding=1)
-                self.pool = nn.AdaptiveAvgPool2d(1)
-                self.fc = nn.Linear(4, 1)
+    def load_pretrained_filters():
+        model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        weights = model.conv1.weight.detach().cpu().numpy()
+        # Convert RGB filters → grayscale
+        return weights.mean(axis=1)  # shape: (64, 7, 7)
 
-            def forward(self, x):
-                x = torch.relu(self.conv(x))
-                x = self.pool(x)
-                return self.fc(x.view(x.size(0), -1))
+    kernels = load_pretrained_filters()
 
-        model = Net()
-        X = torch.tensor(images).unsqueeze(1)
-        y = torch.tensor([[15], [18], [12], [20], [16]], dtype=torch.float)
+    st.subheader("Example learned filters (first CNN layer)")
 
-        opt = optim.Adam(model.parameters(), lr=0.01)
-        loss_fn = nn.MSELoss()
+    cols = st.columns(8)
+    for i in range(8):
+        k = kernels[i]
+        k = (k - k.min()) / (k.max() - k.min() + 1e-8)
 
-        for _ in range(300):
-            opt.zero_grad()
-            loss_fn(model(X), y).backward()
-            opt.step()
+        fig, ax = plt.subplots()
+        ax.imshow(k, cmap="gray")
+        ax.axis("off")
+        cols[i].pyplot(fig)
 
-        return model
-
-    if st.button("🚀 Train CNN"):
-        with st.spinner("Training CNN..."):
-            st.session_state.model = train_cnn(images)
-
-    if st.session_state.model:
-        st.subheader("Learned filters (first convolution layer)")
-        W = st.session_state.model.conv.weight.detach().numpy()
-
-        cols = st.columns(4)
-        for i in range(4):
-            f = W[i, 0]
-            f = (f - f.min()) / (f.max() - f.min() + 1e-8)
-            fig, ax = plt.subplots()
-            ax.imshow(f, cmap="gray")
-            ax.axis("off")
-            cols[i].pyplot(fig)
-
-        with torch.no_grad():
-            pred = st.session_state.model(
-                torch.tensor(image).unsqueeze(0).unsqueeze(0)
-            )
-            st.metric("CNN predicted cell count", int(pred.item()))
-    else:
-        st.info("Press **Train CNN** to let the computer learn its own filters.")
+    st.markdown("""
+    **Observe:**
+    - These filters are not simple edges like Sobel.
+    - The CNN discovered them automatically.
+    - Many filters work *together* to solve a task.
+    """)
