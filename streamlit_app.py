@@ -48,12 +48,12 @@ def show_image(img, title):
     ax.axis("off")
     st.pyplot(fig)
 
+
 # --------------------------------------------------
 # Load images
 # --------------------------------------------------
 
 DATASET_PATH = "labelled"
-
 tiff_files = sorted(glob.glob(os.path.join(DATASET_PATH, "*.tif*")))
 
 if len(tiff_files) < 5:
@@ -65,7 +65,7 @@ images = [load_tiff(p) for p in selected_files]
 image_names = [os.path.basename(p) for p in selected_files]
 
 selected_idx = st.sidebar.selectbox(
-    "Select Image",
+    "Select image",
     range(5),
     format_func=lambda x: image_names[x]
 )
@@ -73,126 +73,151 @@ selected_idx = st.sidebar.selectbox(
 image = images[selected_idx]
 
 # --------------------------------------------------
+# Sidebar navigation
+# --------------------------------------------------
+
+page = st.sidebar.radio(
+    "Go to section",
+    [
+        "1️⃣ Human cell counting",
+        "2️⃣ Counting with filters",
+        "3️⃣ CNN learns filters"
+    ]
+)
+
+# --------------------------------------------------
 # SECTION 1 – Human counting
 # --------------------------------------------------
 
-st.header("1️⃣ How do humans count cells?")
+if page == "1️⃣ Human cell counting":
+    st.header("1️⃣ How do humans count cells?")
 
-col1, col2 = st.columns([1, 1])
+    col1, col2 = st.columns([1, 1])
 
-with col1:
-    show_image(image, "Microscopy Image")
+    with col1:
+        show_image(image, "Microscopy Image")
 
-with col2:
-    st.text_input("How many cells do you see?", key="human_count")
-    st.text_area(
-        "How did you count them? What visual clues did you use?",
-        height=150,
-        key="human_explanation"
-    )
+    with col2:
+        st.text_input("How many cells do you see?", key="human_count")
+        st.text_area(
+            "How did you count them? What visual clues did you use?",
+            height=150,
+            key="human_explanation"
+        )
 
 # --------------------------------------------------
 # SECTION 2 – Fixed filters
 # --------------------------------------------------
 
-st.header("2️⃣ Can a computer count cells using filters?")
+elif page == "2️⃣ Counting with filters":
+    st.header("2️⃣ Can a computer count cells using filters?")
 
-filters = {
-    "Blob filter (average)": np.ones((3, 3)) / 9,
-    "Edge detector": np.array([
-        [-1, -1, -1],
-        [-1,  8, -1],
-        [-1, -1, -1]
-    ]),
-    "Vertical edge": np.array([
-        [-1,  2, -1],
-        [-1,  2, -1],
-        [-1,  2, -1]
-    ])
-}
+    filters = {
+        "Blob filter (average)": np.ones((3, 3)) / 9,
+        "Edge detector": np.array([
+            [-1, -1, -1],
+            [-1,  8, -1],
+            [-1, -1, -1]
+        ]),
+        "Vertical edge": np.array([
+            [-1,  2, -1],
+            [-1,  2, -1],
+            [-1,  2, -1]
+        ])
+    }
 
-filter_name = st.selectbox("Choose a filter", list(filters.keys()))
-kernel = filters[filter_name]
+    filter_name = st.selectbox("Choose a filter", list(filters.keys()))
+    kernel = filters[filter_name]
 
-feature_map = apply_filter(image, kernel)
+    feature_map = apply_filter(image, kernel)
 
-thresh = st.slider(
-    "Threshold",
-    float(feature_map.min()),
-    float(feature_map.max()),
-    float(feature_map.mean())
-)
+    thresh = st.slider(
+        "Threshold",
+        float(feature_map.min()),
+        float(feature_map.max()),
+        float(feature_map.mean())
+    )
 
-binary, count = threshold_and_count(feature_map, thresh)
+    binary, count = threshold_and_count(feature_map, thresh)
 
-c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns(3)
 
-with c1:
-    show_image(feature_map, "Feature Map")
+    with c1:
+        show_image(feature_map, "Feature Map")
 
-with c2:
-    show_image(binary, "Thresholded Image")
+    with c2:
+        show_image(binary, "Thresholded Image")
 
-with c3:
-    st.metric("Predicted Cell Count", count)
+    with c3:
+        st.metric("Predicted Cell Count", count)
 
 # --------------------------------------------------
 # SECTION 3 – CNN learns filters
 # --------------------------------------------------
 
-st.header("3️⃣ What if the computer learns its own filters?")
+elif page == "3️⃣ CNN learns filters":
+    st.header("3️⃣ What if the computer learns its own filters?")
 
-@st.cache_resource
-def train_simple_cnn(images):
-    class SimpleCNN(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.conv = nn.Conv2d(1, 8, kernel_size=3, padding=1)
-            self.pool = nn.AdaptiveAvgPool2d(1)
-            self.fc = nn.Linear(8, 1)
+    if "cnn_model" not in st.session_state:
+        st.session_state.cnn_model = None
 
-        def forward(self, x):
-            x = torch.relu(self.conv(x))
-            x = self.pool(x)
-            x = x.view(x.size(0), -1)
-            return self.fc(x)
+    @st.cache_resource
+    def train_simple_cnn(images):
+        class SimpleCNN(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(1, 8, kernel_size=3, padding=1)
+                self.pool = nn.AdaptiveAvgPool2d(1)
+                self.fc = nn.Linear(8, 1)
 
-    model = SimpleCNN()
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
-    loss_fn = nn.MSELoss()
+            def forward(self, x):
+                x = torch.relu(self.conv(x))
+                x = self.pool(x)
+                x = x.view(x.size(0), -1)
+                return self.fc(x)
 
-    labels = torch.tensor([[15], [18], [12], [20], [16]], dtype=torch.float)
-    X = torch.tensor(images).unsqueeze(1).float()
+        model = SimpleCNN()
+        optimizer = optim.Adam(model.parameters(), lr=0.01)
+        loss_fn = nn.MSELoss()
 
-    for _ in range(300):
-        preds = model(X)
-        loss = loss_fn(preds, labels)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        labels = torch.tensor([[15], [18], [12], [20], [16]], dtype=torch.float)
+        X = torch.tensor(images).unsqueeze(1).float()
 
-    return model
+        for _ in range(300):
+            preds = model(X)
+            loss = loss_fn(preds, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-model = train_simple_cnn(images)
+        return model
 
-st.subheader("Learned Filters (First Convolution Layer)")
+    if st.button("🚀 Train CNN"):
+        with st.spinner("Training CNN..."):
+            st.session_state.cnn_model = train_simple_cnn(images)
 
-learned_filters = model.conv.weight.data.numpy()
-cols = st.columns(4)
+    if st.session_state.cnn_model is not None:
+        model = st.session_state.cnn_model
 
-for i in range(4):
-    f = learned_filters[i, 0]
-    f = (f - f.min()) / (f.max() - f.min() + 1e-8)
-    fig, ax = plt.subplots()
-    ax.imshow(f, cmap="gray")
-    ax.axis("off")
-    cols[i].pyplot(fig)
+        st.subheader("Learned filters (first convolution layer)")
+        learned_filters = model.conv.weight.data.numpy()
 
-with torch.no_grad():
-    pred = model(
-        torch.tensor(image)
-        .unsqueeze(0)
-        .unsqueeze(0)
-        .float()
-    )
-    st.metric("CNN Predicted Cell Count", int(pred.item()))
+        cols = st.columns(4)
+        for i in range(4):
+            f = learned_filters[i, 0]
+            f = (f - f.min()) / (f.max() - f.min() + 1e-8)
+            fig, ax = plt.subplots()
+            ax.imshow(f, cmap="gray")
+            ax.axis("off")
+            cols[i].pyplot(fig)
+
+        with torch.no_grad():
+            pred = model(
+                torch.tensor(image)
+                .unsqueeze(0)
+                .unsqueeze(0)
+                .float()
+            )
+            st.metric("CNN Predicted Cell Count", int(pred.item()))
+    else:
+        st.info("Press **Train CNN** to let the computer learn its own filters.")
