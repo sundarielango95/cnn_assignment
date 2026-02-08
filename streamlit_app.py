@@ -21,15 +21,10 @@ st.title("🧪 Counting Cells Using Convolution")
 # --------------------------------------------------
 
 def load_tiff(path):
-    """Load TIFF image and return normalized 2D array."""
-    img = Image.open(path)
+    """Load TIFF image and return normalized 2D grayscale array."""
+    img = Image.open(path).convert("L")
     img = np.array(img).astype(np.float32)
 
-    # Handle (H, W, 1) TIFFs
-    if img.ndim == 3:
-        img = img.squeeze()
-
-    # Normalize safely
     img = img - img.min()
     img = img / (img.max() + 1e-8)
 
@@ -37,12 +32,10 @@ def load_tiff(path):
 
 
 def apply_filter(image, kernel):
-    """Apply 2D convolution."""
     return ndimage.convolve(image, kernel, mode="reflect")
 
 
 def threshold_and_count(feature_map, thresh):
-    """Threshold and count connected components."""
     binary = feature_map > thresh
     labeled, num = ndimage.label(binary)
     return binary, num
@@ -61,15 +54,12 @@ def show_image(img, title):
 
 DATASET_PATH = "labelled"
 
-tiff_files = sorted(
-    glob.glob(os.path.join(DATASET_PATH, "*.tif*"))
-)
+tiff_files = sorted(glob.glob(os.path.join(DATASET_PATH, "*.tif*")))
 
 if len(tiff_files) < 5:
     st.error("Need at least 5 TIFF images in the labelled folder.")
     st.stop()
 
-# Use first 5 images consistently
 selected_files = tiff_files[:5]
 images = [load_tiff(p) for p in selected_files]
 image_names = [os.path.basename(p) for p in selected_files]
@@ -138,20 +128,13 @@ binary, count = threshold_and_count(feature_map, thresh)
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    show_image(feature_map, "Feature Map (After Convolution)")
+    show_image(feature_map, "Feature Map")
 
 with c2:
     show_image(binary, "Thresholded Image")
 
 with c3:
     st.metric("Predicted Cell Count", count)
-
-st.markdown("""
-**Think about it:**
-- Which filter worked best?
-- Did one filter work for all images?
-- When did the computer miscount?
-""")
 
 # --------------------------------------------------
 # SECTION 3 – CNN learns filters
@@ -178,9 +161,7 @@ def train_simple_cnn(images):
     optimizer = optim.Adam(model.parameters(), lr=0.01)
     loss_fn = nn.MSELoss()
 
-    # Teacher-provided approximate counts (demo only)
     labels = torch.tensor([[15], [18], [12], [20], [16]], dtype=torch.float)
-
     X = torch.tensor(images).unsqueeze(1).float()
 
     for _ in range(300):
@@ -197,8 +178,8 @@ model = train_simple_cnn(images)
 st.subheader("Learned Filters (First Convolution Layer)")
 
 learned_filters = model.conv.weight.data.numpy()
-
 cols = st.columns(4)
+
 for i in range(4):
     f = learned_filters[i, 0]
     f = (f - f.min()) / (f.max() - f.min() + 1e-8)
@@ -215,10 +196,3 @@ with torch.no_grad():
         .float()
     )
     st.metric("CNN Predicted Cell Count", int(pred.item()))
-
-st.markdown("""
-**Reflect:**
-- How are these filters different from the ones you chose?
-- Why do you think these filters work better?
-- Could a human design these filters?
-""")
