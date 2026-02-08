@@ -6,6 +6,10 @@ import matplotlib.pyplot as plt
 from scipy import ndimage
 import torch
 import torchvision.models as models
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from datetime import datetime
+import io
 
 # ==================================================
 # Page setup
@@ -13,6 +17,18 @@ import torchvision.models as models
 
 st.set_page_config(layout="wide")
 st.title("🧪 Counting Cells Using Convolution")
+
+# ==================================================
+# Initialize session state
+# ==================================================
+
+for key in [
+    "student_name",
+    "s2_q1", "s2_q2", "s2_q3",
+    "s3_q1", "s3_q2"
+]:
+    if key not in st.session_state:
+        st.session_state[key] = ""
 
 # ==================================================
 # Utility functions
@@ -43,7 +59,7 @@ def show_image(img, title):
     st.pyplot(fig)
 
 # ==================================================
-# Load microscopy images (labelled/)
+# Load images
 # ==================================================
 
 IMG_DIR = "labelled"
@@ -75,38 +91,29 @@ page = st.sidebar.radio(
     [
         "1️⃣ Human cell counting",
         "2️⃣ Counting with filters",
-        "3️⃣ Filters learned by a CNN"
+        "3️⃣ Filters learned by a CNN",
+        "📄 Download answers"
     ]
 )
 
 # ==================================================
-# SECTION 1 — Human intuition
+# SECTION 1
 # ==================================================
 
 if page == "1️⃣ Human cell counting":
     st.header("1️⃣ How do humans count cells?")
-
     c1, c2 = st.columns(2)
     with c1:
         show_image(image, "Microscopy image")
     with c2:
         st.text_input("How many cells do you see?")
-        st.text_area(
-            "How did you count them? What visual clues did you use?",
-            height=180
-        )
 
 # ==================================================
-# SECTION 2 — Hand-designed filters
+# SECTION 2
 # ==================================================
 
 elif page == "2️⃣ Counting with filters":
-    st.header("2️⃣ Can a computer count cells using filters?")
-
-    st.markdown(
-        "A computer applies the **same filter everywhere** in the image. "
-        "The output becomes strong where the image matches the filter."
-    )
+    st.header("2️⃣ Counting with hand-designed filters")
 
     filters = {
         "Blob filter (average)": np.ones((3, 3)) / 9,
@@ -114,11 +121,6 @@ elif page == "2️⃣ Counting with filters":
             [-1, -1, -1],
             [-1,  8, -1],
             [-1, -1, -1]
-        ]),
-        "Vertical edge": np.array([
-            [-1,  2, -1],
-            [-1,  2, -1],
-            [-1,  2, -1]
         ])
     }
 
@@ -133,8 +135,6 @@ elif page == "2️⃣ Counting with filters":
     with c2:
         show_image(feature_map, "After convolution")
 
-    st.subheader("From response to counting")
-
     thresh = st.slider(
         "Threshold",
         float(feature_map.min()),
@@ -144,56 +144,104 @@ elif page == "2️⃣ Counting with filters":
 
     binary, count = threshold_and_count(feature_map, thresh)
 
-    c3, c4 = st.columns(2)
-    with c3:
-        show_image(binary, "Thresholded image")
-    with c4:
-        st.metric("Predicted count (filter-based)", count)
+    show_image(binary, "Thresholded output")
+    st.metric("Predicted count", count)
 
-    st.markdown("""
-    **Think about it:**
-    - Where does the output become bright?
-    - Which filter works best?
-    - Why does this sometimes fail?
-    """)
+    st.subheader("Think about it")
+
+    st.session_state.s2_q1 = st.text_area(
+        "Where does the output become bright?",
+        value=st.session_state.s2_q1
+    )
+
+    st.session_state.s2_q2 = st.text_area(
+        "Which filter works best?",
+        value=st.session_state.s2_q2
+    )
+
+    st.session_state.s2_q3 = st.text_area(
+        "Why does this sometimes fail?",
+        value=st.session_state.s2_q3
+    )
 
 # ==================================================
-# SECTION 3 — PRETRAINED CNN FILTERS (OPEN SOURCE)
+# SECTION 3
 # ==================================================
 
 elif page == "3️⃣ Filters learned by a CNN":
-    st.header("3️⃣ Filters learned automatically by a CNN")
-
-    st.markdown(
-        "These filters come from an **open-source CNN (ResNet-18)** trained on "
-        "millions of images. They were **not designed by humans**.\n\n"
-        "The **first layer** of a CNN learns general visual patterns like edges, "
-        "blobs, and textures — useful even for microscopy images."
-    )
+    st.header("3️⃣ Filters learned by a CNN")
 
     @st.cache_resource
     def load_pretrained_filters():
         model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-        weights = model.conv1.weight.detach().cpu().numpy()
-        return weights.mean(axis=1)  # RGB → grayscale
+        return model.conv1.weight.detach().cpu().numpy().mean(axis=1)
 
     kernels = load_pretrained_filters()
-
-    st.subheader("Example learned filters (first CNN layer)")
 
     cols = st.columns(8)
     for i in range(8):
         k = kernels[i]
         k = (k - k.min()) / (k.max() - k.min() + 1e-8)
-
         fig, ax = plt.subplots()
         ax.imshow(k, cmap="gray")
         ax.axis("off")
         cols[i].pyplot(fig)
 
-    st.markdown("""
-    **Observe:**
-    - These filters were learned, not hand-designed
-    - Many filters work together
-    - CNNs discover useful patterns automatically
-    """)
+    st.subheader("Reflect")
+
+    st.session_state.s3_q1 = st.text_area(
+        "How are these filters different from hand-designed filters?",
+        value=st.session_state.s3_q1
+    )
+
+    st.session_state.s3_q2 = st.text_area(
+        "Why might learned filters work better?",
+        value=st.session_state.s3_q2
+    )
+
+# ==================================================
+# PDF EXPORT
+# ==================================================
+
+elif page == "📄 Download answers":
+    st.header("Download your answers")
+
+    st.session_state.student_name = st.text_input(
+        "Student name",
+        value=st.session_state.student_name
+    )
+
+    if st.button("Generate PDF"):
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+        y = height - 40
+
+        def write(text):
+            nonlocal y
+            for line in text.split("\n"):
+                pdf.drawString(40, y, line)
+                y -= 14
+                if y < 40:
+                    pdf.showPage()
+                    y = height - 40
+
+        write(f"Student: {st.session_state.student_name}")
+        write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        write("\nSection 2: Counting with filters")
+        write(f"Q1: {st.session_state.s2_q1}")
+        write(f"Q2: {st.session_state.s2_q2}")
+        write(f"Q3: {st.session_state.s2_q3}")
+        write("\nSection 3: CNN filters")
+        write(f"Q1: {st.session_state.s3_q1}")
+        write(f"Q2: {st.session_state.s3_q2}")
+
+        pdf.save()
+        buffer.seek(0)
+
+        st.download_button(
+            "Download PDF",
+            buffer,
+            file_name="cell_counting_answers.pdf",
+            mime="application/pdf"
+        )
