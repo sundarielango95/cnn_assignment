@@ -23,7 +23,7 @@ st.title("🧪 Counting Cells Using Convolution")
 def load_tiff(path):
     """
     Load TIFF robustly and return a normalized 2D grayscale image.
-    Works for RGB TIFFs, (H,W,1), etc.
+    Handles RGB TIFFs, (H,W,1), etc.
     """
     img = Image.open(path).convert("L")
     img = np.array(img).astype(np.float32)
@@ -108,7 +108,7 @@ if page == "1️⃣ Human cell counting":
         )
 
 # ==================================================
-# SECTION 2 — Fixed filters + visualisation
+# SECTION 2 — Filters + correct visualisation
 # ==================================================
 
 elif page == "2️⃣ Counting with filters":
@@ -116,7 +116,7 @@ elif page == "2️⃣ Counting with filters":
 
     st.markdown(
         "A computer does not know what a cell is. "
-        "It **slides a filter over the image** and responds strongly "
+        "It slides a **filter (kernel)** over the image and responds strongly "
         "where the image matches the filter."
     )
 
@@ -142,25 +142,47 @@ elif page == "2️⃣ Counting with filters":
     kernel = filters[filter_name]
 
     # -------------------------------
-    # Visualise the filter itself
+    # Visualise the filter correctly
     # -------------------------------
 
     st.subheader("🔹 The filter (kernel)")
 
-    fig, ax = plt.subplots()
-    ax.imshow(kernel, cmap="gray")
-    ax.set_title("Filter values")
-    ax.set_xticks(range(kernel.shape[1]))
-    ax.set_yticks(range(kernel.shape[0]))
-    ax.set_xticklabels(range(kernel.shape[1]))
-    ax.set_yticklabels(range(kernel.shape[0]))
+    # Normalise ONLY for display
+    k = kernel.copy()
+    k_min, k_max = k.min(), k.max()
 
-    for i in range(kernel.shape[0]):
-        for j in range(kernel.shape[1]):
-            ax.text(j, i, f"{kernel[i, j]:.2f}",
-                    ha="center", va="center", color="red")
+    if k_max > k_min:
+        k_vis = (k - k_min) / (k_max - k_min)
+    else:
+        # Flat kernel (e.g. averaging filter)
+        k_vis = np.ones_like(k) * 0.5
+
+    fig, ax = plt.subplots()
+    ax.imshow(k_vis, cmap="gray", vmin=0, vmax=1)
+    ax.set_title("Filter values (visualised)")
+    ax.set_xticks(range(k.shape[1]))
+    ax.set_yticks(range(k.shape[0]))
+    ax.set_xticklabels(range(k.shape[1]))
+    ax.set_yticklabels(range(k.shape[0]))
+
+    for i in range(k.shape[0]):
+        for j in range(k.shape[1]):
+            ax.text(
+                j, i,
+                f"{k[i, j]:.2f}",
+                ha="center",
+                va="center",
+                color="red",
+                fontsize=12
+            )
 
     st.pyplot(fig)
+
+    st.markdown(
+        "This filter is slid across the image. "
+        "Where the image looks similar to this pattern, "
+        "the output becomes bright."
+    )
 
     # -------------------------------
     # Apply convolution
@@ -178,7 +200,7 @@ elif page == "2️⃣ Counting with filters":
     binary, count = threshold_and_count(feature_map, thresh)
 
     # -------------------------------
-    # Before / after visualisation
+    # Before / after comparison
     # -------------------------------
 
     st.subheader("🔹 Effect of applying the filter")
@@ -198,9 +220,9 @@ elif page == "2️⃣ Counting with filters":
 
     st.markdown("""
     **Think about it:**
-    - Where does the image become bright after filtering?
-    - Does that match where cells are?
-    - What happens when you change the filter?
+    - Where does the feature map become bright?
+    - Does that match where the cells are?
+    - Which filter works best, and why?
     """)
 
 # ==================================================
@@ -232,7 +254,7 @@ elif page == "3️⃣ CNN learns filters":
         optimizer = optim.Adam(model.parameters(), lr=0.01)
         loss_fn = nn.MSELoss()
 
-        # Teacher-provided approximate counts (demo purpose)
+        # Teacher-provided approximate counts (demo only)
         labels = torch.tensor([[15], [18], [12], [20], [16]], dtype=torch.float)
         X = torch.tensor(images).unsqueeze(1).float()
 
