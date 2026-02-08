@@ -128,14 +128,48 @@ if page == "1️⃣ Human cell counting":
 elif page == "2️⃣ Counting with filters":
     st.header("2️⃣ Counting with hand-designed filters")
 
+    # filters = {
+    #     "Blob filter (average)": np.ones((3, 3)) / 9,
+    #     "Edge detector": np.array([
+    #         [-1, -1, -1],
+    #         [-1,  8, -1],
+    #         [-1, -1, -1]
+    #     ])
+    # }
     filters = {
         "Blob filter (average)": np.ones((3, 3)) / 9,
-        "Edge detector": np.array([
+    
+        "Gaussian blur": np.array([
+            [1, 2, 1],
+            [2, 4, 2],
+            [1, 2, 1]
+        ]) / 16,
+    
+        "Edge detector (Laplacian)": np.array([
+            [ 0,  1,  0],
+            [ 1, -4,  1],
+            [ 0,  1,  0]
+        ]),
+    
+        "Vertical edge detector": np.array([
+            [-1,  2, -1],
+            [-1,  2, -1],
+            [-1,  2, -1]
+        ]),
+    
+        "Horizontal edge detector": np.array([
             [-1, -1, -1],
-            [-1,  8, -1],
+            [ 2,  2,  2],
             [-1, -1, -1]
+        ]),
+    
+        "Sharpening filter": np.array([
+            [ 0, -1,  0],
+            [-1,  5, -1],
+            [ 0, -1,  0]
         ])
     }
+
 
     fname = st.selectbox("Choose a filter", list(filters.keys()))
     kernel = filters[fname]
