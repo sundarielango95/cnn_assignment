@@ -19,7 +19,6 @@ st.title("🧪 Counting Cells Using Convolution")
 # ==================================================
 
 def load_tiff(path):
-    """Load TIFF robustly and return normalized 2D grayscale image."""
     img = Image.open(path).convert("L")
     img = np.array(img).astype(np.float32)
     img = (img - img.min()) / (img.max() + 1e-8)
@@ -44,14 +43,17 @@ def show_image(img, title):
     st.pyplot(fig)
 
 # ==================================================
-# Load microscopy images (labelled/img)
+# Load microscopy images (labelled/)
 # ==================================================
 
-IMG_DIR = "labelled/img"
-tiff_files = sorted(glob.glob(os.path.join(IMG_DIR, "*.tif*")))
+IMG_DIR = "labelled"
+tiff_files = sorted(
+    glob.glob(os.path.join(IMG_DIR, "*.tif")) +
+    glob.glob(os.path.join(IMG_DIR, "*.tiff"))
+)
 
 if len(tiff_files) == 0:
-    st.error("No TIFF images found in labelled/img/")
+    st.error("No TIFF images found in labelled/")
     st.stop()
 
 images = [load_tiff(p) for p in tiff_files]
@@ -103,7 +105,7 @@ elif page == "2️⃣ Counting with filters":
 
     st.markdown(
         "A computer applies the **same filter everywhere** in the image. "
-        "The output becomes bright where the image matches the filter."
+        "The output becomes strong where the image matches the filter."
     )
 
     filters = {
@@ -165,16 +167,15 @@ elif page == "3️⃣ Filters learned by a CNN":
     st.markdown(
         "These filters come from an **open-source CNN (ResNet-18)** trained on "
         "millions of images. They were **not designed by humans**.\n\n"
-        "The **first layer** of a CNN learns very general patterns like edges, "
-        "blobs, and textures — useful even for cell images."
+        "The **first layer** of a CNN learns general visual patterns like edges, "
+        "blobs, and textures — useful even for microscopy images."
     )
 
     @st.cache_resource
     def load_pretrained_filters():
         model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         weights = model.conv1.weight.detach().cpu().numpy()
-        # Convert RGB filters → grayscale
-        return weights.mean(axis=1)  # shape: (64, 7, 7)
+        return weights.mean(axis=1)  # RGB → grayscale
 
     kernels = load_pretrained_filters()
 
@@ -192,7 +193,7 @@ elif page == "3️⃣ Filters learned by a CNN":
 
     st.markdown("""
     **Observe:**
-    - These filters are not simple edges like Sobel.
-    - The CNN discovered them automatically.
-    - Many filters work *together* to solve a task.
+    - These filters were learned, not hand-designed
+    - Many filters work together
+    - CNNs discover useful patterns automatically
     """)
