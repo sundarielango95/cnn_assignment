@@ -9,19 +9,22 @@ import matplotlib.pyplot as plt
 import glob
 import os
 
-# --------------------------------------------------
+# ==================================================
 # Page setup
-# --------------------------------------------------
+# ==================================================
 
 st.set_page_config(layout="wide")
 st.title("🧪 Counting Cells Using Convolution")
 
-# --------------------------------------------------
+# ==================================================
 # Utility functions
-# --------------------------------------------------
+# ==================================================
 
 def load_tiff(path):
-    """Load TIFF image and return normalized 2D grayscale array."""
+    """
+    Load TIFF robustly and return a normalized 2D grayscale image.
+    Works for RGB TIFFs, (H,W,1), etc.
+    """
     img = Image.open(path).convert("L")
     img = np.array(img).astype(np.float32)
 
@@ -48,10 +51,9 @@ def show_image(img, title):
     ax.axis("off")
     st.pyplot(fig)
 
-
-# --------------------------------------------------
+# ==================================================
 # Load images
-# --------------------------------------------------
+# ==================================================
 
 DATASET_PATH = "labelled"
 tiff_files = sorted(glob.glob(os.path.join(DATASET_PATH, "*.tif*")))
@@ -72,9 +74,9 @@ selected_idx = st.sidebar.selectbox(
 
 image = images[selected_idx]
 
-# --------------------------------------------------
+# ==================================================
 # Sidebar navigation
-# --------------------------------------------------
+# ==================================================
 
 page = st.sidebar.radio(
     "Go to section",
@@ -85,9 +87,9 @@ page = st.sidebar.radio(
     ]
 )
 
-# --------------------------------------------------
-# SECTION 1 – Human counting
-# --------------------------------------------------
+# ==================================================
+# SECTION 1 — Human counting
+# ==================================================
 
 if page == "1️⃣ Human cell counting":
     st.header("1️⃣ How do humans count cells?")
@@ -95,22 +97,32 @@ if page == "1️⃣ Human cell counting":
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        show_image(image, "Microscopy Image")
+        show_image(image, "Microscopy image")
 
     with col2:
         st.text_input("How many cells do you see?", key="human_count")
         st.text_area(
             "How did you count them? What visual clues did you use?",
-            height=150,
+            height=180,
             key="human_explanation"
         )
 
-# --------------------------------------------------
-# SECTION 2 – Fixed filters
-# --------------------------------------------------
+# ==================================================
+# SECTION 2 — Fixed filters + visualisation
+# ==================================================
 
 elif page == "2️⃣ Counting with filters":
     st.header("2️⃣ Can a computer count cells using filters?")
+
+    st.markdown(
+        "A computer does not know what a cell is. "
+        "It **slides a filter over the image** and responds strongly "
+        "where the image matches the filter."
+    )
+
+    # -------------------------------
+    # Filter selection
+    # -------------------------------
 
     filters = {
         "Blob filter (average)": np.ones((3, 3)) / 9,
@@ -129,6 +141,31 @@ elif page == "2️⃣ Counting with filters":
     filter_name = st.selectbox("Choose a filter", list(filters.keys()))
     kernel = filters[filter_name]
 
+    # -------------------------------
+    # Visualise the filter itself
+    # -------------------------------
+
+    st.subheader("🔹 The filter (kernel)")
+
+    fig, ax = plt.subplots()
+    ax.imshow(kernel, cmap="gray")
+    ax.set_title("Filter values")
+    ax.set_xticks(range(kernel.shape[1]))
+    ax.set_yticks(range(kernel.shape[0]))
+    ax.set_xticklabels(range(kernel.shape[1]))
+    ax.set_yticklabels(range(kernel.shape[0]))
+
+    for i in range(kernel.shape[0]):
+        for j in range(kernel.shape[1]):
+            ax.text(j, i, f"{kernel[i, j]:.2f}",
+                    ha="center", va="center", color="red")
+
+    st.pyplot(fig)
+
+    # -------------------------------
+    # Apply convolution
+    # -------------------------------
+
     feature_map = apply_filter(image, kernel)
 
     thresh = st.slider(
@@ -140,20 +177,35 @@ elif page == "2️⃣ Counting with filters":
 
     binary, count = threshold_and_count(feature_map, thresh)
 
+    # -------------------------------
+    # Before / after visualisation
+    # -------------------------------
+
+    st.subheader("🔹 Effect of applying the filter")
+
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        show_image(feature_map, "Feature Map")
+        show_image(image, "Original image")
 
     with c2:
-        show_image(binary, "Thresholded Image")
+        show_image(feature_map, "After convolution (feature map)")
 
     with c3:
-        st.metric("Predicted Cell Count", count)
+        show_image(binary, "After thresholding")
 
-# --------------------------------------------------
-# SECTION 3 – CNN learns filters
-# --------------------------------------------------
+    st.metric("Predicted cell count", count)
+
+    st.markdown("""
+    **Think about it:**
+    - Where does the image become bright after filtering?
+    - Does that match where cells are?
+    - What happens when you change the filter?
+    """)
+
+# ==================================================
+# SECTION 3 — CNN learns filters (button-triggered)
+# ==================================================
 
 elif page == "3️⃣ CNN learns filters":
     st.header("3️⃣ What if the computer learns its own filters?")
@@ -180,6 +232,7 @@ elif page == "3️⃣ CNN learns filters":
         optimizer = optim.Adam(model.parameters(), lr=0.01)
         loss_fn = nn.MSELoss()
 
+        # Teacher-provided approximate counts (demo purpose)
         labels = torch.tensor([[15], [18], [12], [20], [16]], dtype=torch.float)
         X = torch.tensor(images).unsqueeze(1).float()
 
@@ -218,6 +271,6 @@ elif page == "3️⃣ CNN learns filters":
                 .unsqueeze(0)
                 .float()
             )
-            st.metric("CNN Predicted Cell Count", int(pred.item()))
+            st.metric("CNN predicted cell count", int(pred.item()))
     else:
         st.info("Press **Train CNN** to let the computer learn its own filters.")
