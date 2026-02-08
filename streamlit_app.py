@@ -8,6 +8,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import glob
 import os
+import matplotlib.patches as patches
 
 # ==================================================
 # Page setup
@@ -21,16 +22,10 @@ st.title("🧪 Counting Cells Using Convolution")
 # ==================================================
 
 def load_tiff(path):
-    """
-    Load TIFF robustly and return a normalized 2D grayscale image.
-    Handles RGB TIFFs, (H,W,1), etc.
-    """
+    """Load TIFF robustly and return normalized 2D grayscale image."""
     img = Image.open(path).convert("L")
     img = np.array(img).astype(np.float32)
-
-    img = img - img.min()
-    img = img / (img.max() + 1e-8)
-
+    img = (img - img.min()) / (img.max() + 1e-8)
     return img
 
 
@@ -62,17 +57,16 @@ if len(tiff_files) < 5:
     st.error("Need at least 5 TIFF images in the labelled folder.")
     st.stop()
 
-selected_files = tiff_files[:5]
-images = [load_tiff(p) for p in selected_files]
-image_names = [os.path.basename(p) for p in selected_files]
+files = tiff_files[:5]
+images = [load_tiff(p) for p in files]
+names = [os.path.basename(p) for p in files]
 
-selected_idx = st.sidebar.selectbox(
+idx = st.sidebar.selectbox(
     "Select image",
     range(5),
-    format_func=lambda x: image_names[x]
+    format_func=lambda i: names[i]
 )
-
-image = images[selected_idx]
+image = images[idx]
 
 # ==================================================
 # Sidebar navigation
@@ -94,30 +88,23 @@ page = st.sidebar.radio(
 if page == "1️⃣ Human cell counting":
     st.header("1️⃣ How do humans count cells?")
 
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         show_image(image, "Microscopy image")
-
-    with col2:
-        st.text_input("How many cells do you see?", key="human_count")
-        st.text_area(
-            "How did you count them? What visual clues did you use?",
-            height=180,
-            key="human_explanation"
-        )
+    with c2:
+        st.text_input("How many cells do you see?")
+        st.text_area("How did you count them? What visual clues did you use?")
 
 # ==================================================
-# SECTION 2 — Filters + correct visualisation
+# SECTION 2 — FILTERS + SLIDING ANIMATION (NO KERNEL PLOT)
 # ==================================================
 
 elif page == "2️⃣ Counting with filters":
-    st.header("2️⃣ Can a computer count cells using filters?")
+    st.header("2️⃣ Convolution as a sliding operation")
 
     st.markdown(
         "A computer does not know what a cell is. "
-        "It slides a **filter (kernel)** over the image and responds strongly "
-        "where the image matches the filter."
+        "It applies the **same small operation everywhere** in the image."
     )
 
     # -------------------------------
@@ -131,168 +118,120 @@ elif page == "2️⃣ Counting with filters":
             [-1,  8, -1],
             [-1, -1, -1]
         ]),
-        "Vertical edge": np.array([
-            [-1,  2, -1],
-            [-1,  2, -1],
-            [-1,  2, -1]
-        ])
     }
 
-    filter_name = st.selectbox("Choose a filter", list(filters.keys()))
-    kernel = filters[filter_name]
+    fname = st.selectbox("Choose a filter", list(filters.keys()))
+    kernel = filters[fname]
+    k = kernel.shape[0]
 
     # -------------------------------
-    # Visualise the filter correctly
+    # Sliding convolution animation
     # -------------------------------
 
-    st.subheader("🔹 The filter (kernel)")
+    st.subheader("🔹 Sliding the filter across the image")
 
-    # Normalise ONLY for display
-    k = kernel.copy()
-    k_min, k_max = k.min(), k.max()
+    H, W = image.shape
+    pad = k // 2
+    padded = np.pad(image, pad, mode="reflect")
 
-    if k_max > k_min:
-        k_vis = (k - k_min) / (k_max - k_min)
-    else:
-        # Flat kernel (e.g. averaging filter)
-        k_vis = np.ones_like(k) * 0.5
+    max_step = H * W - 1
+    step = st.slider("Slide step", 0, max_step, 0)
 
-    fig, ax = plt.subplots()
-    ax.imshow(k_vis, cmap="gray", vmin=0, vmax=1)
-    ax.set_title("Filter values (visualised)")
-    ax.set_xticks(range(k.shape[1]))
-    ax.set_yticks(range(k.shape[0]))
-    ax.set_xticklabels(range(k.shape[1]))
-    ax.set_yticklabels(range(k.shape[0]))
+    r = step // W
+    c = step % W
 
-    for i in range(k.shape[0]):
-        for j in range(k.shape[1]):
-            ax.text(
-                j, i,
-                f"{k[i, j]:.2f}",
-                ha="center",
-                va="center",
-                color="red",
-                fontsize=12
-            )
-
-    st.pyplot(fig)
-
-    st.markdown(
-        "This filter is slid across the image. "
-        "Where the image looks similar to this pattern, "
-        "the output becomes bright."
-    )
+    patch = padded[r:r+k, c:c+k]
+    value = np.sum(patch * kernel)
 
     # -------------------------------
-    # Apply convolution
+    # Visuals
     # -------------------------------
-
-    feature_map = apply_filter(image, kernel)
-
-    thresh = st.slider(
-        "Threshold",
-        float(feature_map.min()),
-        float(feature_map.max()),
-        float(feature_map.mean())
-    )
-
-    binary, count = threshold_and_count(feature_map, thresh)
-
-    # -------------------------------
-    # Before / after comparison
-    # -------------------------------
-
-    st.subheader("🔹 Effect of applying the filter")
 
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        show_image(image, "Original image")
+        fig, ax = plt.subplots()
+        ax.imshow(image, cmap="gray")
+        rect = patches.Rectangle(
+            (c - 0.5, r - 0.5),
+            1, 1,
+            linewidth=2,
+            edgecolor="red",
+            facecolor="none"
+        )
+        ax.add_patch(rect)
+        ax.set_title("Where the filter is applied")
+        ax.axis("off")
+        st.pyplot(fig)
 
     with c2:
-        show_image(feature_map, "After convolution (feature map)")
+        fig, ax = plt.subplots()
+        ax.imshow(patch, cmap="gray")
+        ax.set_title("Local image patch")
+        ax.axis("off")
+        st.pyplot(fig)
 
     with c3:
-        show_image(binary, "After thresholding")
+        st.markdown("**Output at this location:**")
+        st.latex(r"\sum (\text{patch} \times \text{filter})")
+        st.metric("Value", f"{value:.3f}")
 
-    st.metric("Predicted cell count", count)
-
-    st.markdown("""
-    **Think about it:**
-    - Where does the feature map become bright?
-    - Does that match where the cells are?
-    - Which filter works best, and why?
-    """)
+    st.info(
+        "Move the slider to see how the same filter is applied "
+        "at every location in the image."
+    )
 
 # ==================================================
-# SECTION 3 — CNN learns filters (button-triggered)
+# SECTION 3 — CNN learns filters
 # ==================================================
 
 elif page == "3️⃣ CNN learns filters":
     st.header("3️⃣ What if the computer learns its own filters?")
 
-    if "cnn_model" not in st.session_state:
-        st.session_state.cnn_model = None
+    if "model" not in st.session_state:
+        st.session_state.model = None
 
     @st.cache_resource
-    def train_simple_cnn(images):
-        class SimpleCNN(nn.Module):
+    def train_cnn(images):
+        class Net(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.conv = nn.Conv2d(1, 8, kernel_size=3, padding=1)
+                self.conv = nn.Conv2d(1, 4, 3, padding=1)
                 self.pool = nn.AdaptiveAvgPool2d(1)
-                self.fc = nn.Linear(8, 1)
+                self.fc = nn.Linear(4, 1)
 
             def forward(self, x):
                 x = torch.relu(self.conv(x))
                 x = self.pool(x)
-                x = x.view(x.size(0), -1)
-                return self.fc(x)
+                return self.fc(x.view(x.size(0), -1))
 
-        model = SimpleCNN()
-        optimizer = optim.Adam(model.parameters(), lr=0.01)
+        model = Net()
+        X = torch.tensor(images).unsqueeze(1)
+        y = torch.tensor([[15], [18], [12], [20], [16]], dtype=torch.float)
+
+        opt = optim.Adam(model.parameters(), lr=0.01)
         loss_fn = nn.MSELoss()
 
-        # Teacher-provided approximate counts (demo only)
-        labels = torch.tensor([[15], [18], [12], [20], [16]], dtype=torch.float)
-        X = torch.tensor(images).unsqueeze(1).float()
-
         for _ in range(300):
-            preds = model(X)
-            loss = loss_fn(preds, labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            opt.zero_grad()
+            loss_fn(model(X), y).backward()
+            opt.step()
 
         return model
 
     if st.button("🚀 Train CNN"):
         with st.spinner("Training CNN..."):
-            st.session_state.cnn_model = train_simple_cnn(images)
+            st.session_state.model = train_cnn(images)
 
-    if st.session_state.cnn_model is not None:
-        model = st.session_state.cnn_model
-
+    if st.session_state.model:
         st.subheader("Learned filters (first convolution layer)")
-        learned_filters = model.conv.weight.data.numpy()
+        W = st.session_state.model.conv.weight.detach().numpy()
 
         cols = st.columns(4)
         for i in range(4):
-            f = learned_filters[i, 0]
+            f = W[i, 0]
             f = (f - f.min()) / (f.max() - f.min() + 1e-8)
             fig, ax = plt.subplots()
             ax.imshow(f, cmap="gray")
             ax.axis("off")
             cols[i].pyplot(fig)
-
-        with torch.no_grad():
-            pred = model(
-                torch.tensor(image)
-                .unsqueeze(0)
-                .unsqueeze(0)
-                .float()
-            )
-            st.metric("CNN predicted cell count", int(pred.item()))
-    else:
-        st.info("Press **Train CNN** to let the computer learn its own filters.")
