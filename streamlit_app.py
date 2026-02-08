@@ -215,16 +215,15 @@ elif page == "📄 Download answers":
         buffer = io.BytesIO()
         pdf = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
-        y = height - 40
+        y = [height - 40]  # mutable container
 
         def write(text):
-            nonlocal y
             for line in text.split("\n"):
-                pdf.drawString(40, y, line)
-                y -= 14
-                if y < 40:
+                pdf.drawString(40, y[0], line)
+                y[0] -= 14
+                if y[0] < 40:
                     pdf.showPage()
-                    y = height - 40
+                    y[0] = height - 40
 
         write(f"Student: {st.session_state.student_name}")
         write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
