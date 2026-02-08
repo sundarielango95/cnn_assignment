@@ -24,6 +24,7 @@ st.title("🧪 Counting Cells Using Convolution")
 
 for key in [
     "student_name",
+    "s1_q1", "s1_q2",
     "s2_q1", "s2_q2", "s2_q3",
     "s3_q1", "s3_q2"
 ]:
@@ -59,7 +60,7 @@ def show_image(img, title):
     st.pyplot(fig)
 
 # ==================================================
-# Load images
+# Load microscopy images (labelled/)
 # ==================================================
 
 IMG_DIR = "labelled"
@@ -97,19 +98,31 @@ page = st.sidebar.radio(
 )
 
 # ==================================================
-# SECTION 1
+# SECTION 1 — Human intuition
 # ==================================================
 
 if page == "1️⃣ Human cell counting":
     st.header("1️⃣ How do humans count cells?")
+
     c1, c2 = st.columns(2)
+
     with c1:
         show_image(image, "Microscopy image")
+
     with c2:
-        st.text_input("How many cells do you see?")
+        st.session_state.s1_q1 = st.text_input(
+            "How many cells do you see?",
+            value=st.session_state.s1_q1
+        )
+
+        st.session_state.s1_q2 = st.text_area(
+            "How did you count the cells? What visual cues did you use?",
+            value=st.session_state.s1_q2,
+            height=180
+        )
 
 # ==================================================
-# SECTION 2
+# SECTION 2 — Hand-designed filters
 # ==================================================
 
 elif page == "2️⃣ Counting with filters":
@@ -145,7 +158,7 @@ elif page == "2️⃣ Counting with filters":
     binary, count = threshold_and_count(feature_map, thresh)
 
     show_image(binary, "Thresholded output")
-    st.metric("Predicted count", count)
+    st.metric("Predicted count (filter-based)", count)
 
     st.subheader("Think about it")
 
@@ -165,11 +178,16 @@ elif page == "2️⃣ Counting with filters":
     )
 
 # ==================================================
-# SECTION 3
+# SECTION 3 — Pretrained CNN filters
 # ==================================================
 
 elif page == "3️⃣ Filters learned by a CNN":
-    st.header("3️⃣ Filters learned by a CNN")
+    st.header("3️⃣ Filters learned automatically by a CNN")
+
+    st.markdown(
+        "These filters come from an **open-source CNN (ResNet-18)** trained on "
+        "millions of images. They were **not designed by humans**."
+    )
 
     @st.cache_resource
     def load_pretrained_filters():
@@ -200,7 +218,7 @@ elif page == "3️⃣ Filters learned by a CNN":
     )
 
 # ==================================================
-# PDF EXPORT
+# SECTION 4 — PDF export
 # ==================================================
 
 elif page == "📄 Download answers":
@@ -215,7 +233,7 @@ elif page == "📄 Download answers":
         buffer = io.BytesIO()
         pdf = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
-        y = [height - 40]  # mutable container
+        y = [height - 40]
 
         def write(text):
             for line in text.split("\n"):
@@ -227,13 +245,19 @@ elif page == "📄 Download answers":
 
         write(f"Student: {st.session_state.student_name}")
         write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+        write("\nSection 1: Human cell counting")
+        write(f"How many cells did you see? {st.session_state.s1_q1}")
+        write(f"How did you count the cells? {st.session_state.s1_q2}")
+
         write("\nSection 2: Counting with filters")
-        write(f"Q1: {st.session_state.s2_q1}")
-        write(f"Q2: {st.session_state.s2_q2}")
-        write(f"Q3: {st.session_state.s2_q3}")
+        write(f"Where does the output become bright? {st.session_state.s2_q1}")
+        write(f"Which filter works best? {st.session_state.s2_q2}")
+        write(f"Why does this sometimes fail? {st.session_state.s2_q3}")
+
         write("\nSection 3: CNN filters")
-        write(f"Q1: {st.session_state.s3_q1}")
-        write(f"Q2: {st.session_state.s3_q2}")
+        write(f"How are learned filters different? {st.session_state.s3_q1}")
+        write(f"Why might learned filters work better? {st.session_state.s3_q2}")
 
         pdf.save()
         buffer.seek(0)
@@ -241,6 +265,6 @@ elif page == "📄 Download answers":
         st.download_button(
             "Download PDF",
             buffer,
-            file_name="cell_counting_answers.pdf",
+            file_name="cell_counting_reflections.pdf",
             mime="application/pdf"
         )
